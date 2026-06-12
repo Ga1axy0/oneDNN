@@ -17,6 +17,7 @@
 
 #include <cstddef>
 
+#include "cpu/rv64/jit_rvv_eltwise_emitter.hpp"
 #include "cpu/rv64/jit_rvv_softmax_kernel.hpp"
 
 namespace dnnl {
@@ -284,21 +285,11 @@ void jit_rvv_softmax_f16_exp_sub_sum_kernel_t::generate() {
     const Reg reg_sub_tmp = t2;
     const Reg reg_vl = t0;
     const Reg reg_bytes = t1;
-    const Reg reg_maxexp = t4;
-    const Reg reg_minexp = t5;
-    const Reg reg_imm = t6;
 
     const FReg f_zero = ft0;
-    const FReg f_lower = ft1;
-    const FReg f_upper = ft2;
-    const FReg f_round = ft3;
-    const FReg f_log2_recip = ft4;
-    const FReg f_log2_high = ft5;
-    const FReg f_log2_low = ft6;
+    const FReg f_tmp0 = ft1;
+    const FReg f_tmp1 = ft2;
     const FReg f_sub = fa0;
-    const FReg f_poly3 = ft7;
-    const FReg f_poly4 = ft8;
-    const FReg f_poly56 = ft9;
     const FReg f_sum = ft10;
 
     const VReg v_in16(0);
@@ -309,13 +300,9 @@ void jit_rvv_softmax_f16_exp_sub_sum_kernel_t::generate() {
     const VReg v_acc(24);
     const VReg v_red(28);
 
-    auto load_f32_bits = [&](const FReg &freg, uint32_t bits) {
-        li(reg_imm, static_cast<int64_t>(bits));
-        fmv_w_x(freg, reg_imm);
-    };
-    auto load_f32 = [&](const FReg &freg, float value) {
-        load_f32_bits(freg, utils::bit_cast<uint32_t>(value));
-    };
+    jit_rvv_eltwise_emitter_t elt(this);
+    const eltwise_regs_t regs {v_x, v_x, v_bias, v_tmpv, v_poly, v_red, f_sub,
+            f_zero, f_zero, f_zero, f_tmp0, f_tmp1, t4, t5};
 
     ld(reg_src, reg_param, F16_EXP_SUB_SUM_OFF(src));
     ld(reg_tmp, reg_param, F16_EXP_SUB_SUM_OFF(tmp));
@@ -323,19 +310,7 @@ void jit_rvv_softmax_f16_exp_sub_sum_kernel_t::generate() {
     ld(reg_sum, reg_param, F16_EXP_SUB_SUM_OFF(sum));
     lw(reg_sub_tmp, reg_param, F16_EXP_SUB_SUM_OFF(sub));
     fmv_w_x(f_sub, reg_sub_tmp);
-
     fmv_w_x(f_zero, x0);
-    load_f32(f_lower, -103.9720840454f);
-    load_f32(f_upper, 88.7762626647950f);
-    load_f32(f_round, 12582912.0f);
-    load_f32(f_log2_recip, 1.44269504088896341f);
-    load_f32(f_log2_high, -6.93145752e-1f);
-    load_f32(f_log2_low, -1.42860677e-6f);
-    load_f32_bits(f_poly3, 0x3e2aaa28u); // 0x1.555450p-3f
-    load_f32_bits(f_poly4, 0x3efffffbu); // 0x1.fffff6p-2f
-    load_f32_bits(f_poly56, 0x3f800000u); // 0x1.000000p+0f
-    li(reg_minexp, static_cast<int64_t>(0xC1000000u));
-    li(reg_maxexp, static_cast<int64_t>(0x3F800000u));
 
     vsetvli(reg_vl, x0, SEW::e32, LMUL::m4);
     vfmv_v_f(v_acc, f_zero);
@@ -352,29 +327,9 @@ void jit_rvv_softmax_f16_exp_sub_sum_kernel_t::generate() {
 
     vsetvli(reg_vl, reg_len, SEW::e32, LMUL::m4);
     vfsub_vf(v_x, v_x, f_sub);
-    vfmv_v_f(v_bias, f_round);
-    vfmv_v_f(v_poly, f_poly3);
-    vfmax_vf(v_x, v_x, f_lower);
-    vfmin_vf(v_x, v_x, f_upper);
-    vfmacc_vf(v_bias, f_log2_recip, v_x);
-    vfsub_vf(v_tmpv, v_bias, f_round);
-    vfmacc_vf(v_x, f_log2_high, v_tmpv);
-    vfmacc_vf(v_x, f_log2_low, v_tmpv);
-    vfmv_v_f(v_tmpv, f_poly4);
-    vfmadd_vv(v_poly, v_x, v_tmpv);
-    vfmv_v_f(v_tmpv, f_poly56);
-    vfmadd_vv(v_poly, v_x, v_tmpv);
-    vsll_vi(v_bias, v_bias, 23);
-    vmin_vx(v_tmpv, v_bias, reg_maxexp);
-    vmax_vx(v_tmpv, v_tmpv, reg_minexp);
-    vsub_vv(v_bias, v_bias, v_tmpv);
-    vadd_vx(v_bias, v_bias, reg_maxexp);
-    vadd_vx(v_tmpv, v_tmpv, reg_maxexp);
-    vfmul_vv(v_x, v_x, v_bias);
-    vfmadd_vv(v_poly, v_x, v_bias);
-    vfmul_vv(v_poly, v_poly, v_tmpv);
-    vfadd_vv(v_acc, v_acc, v_poly);
-    vse32_v(v_poly, reg_tmp);
+    elt.exp(regs, v_x, v_x);
+    vfadd_vv(v_acc, v_acc, v_x);
+    vse32_v(v_x, reg_tmp);
     slli(reg_bytes, reg_vl, 2);
     add(reg_tmp, reg_tmp, reg_bytes);
     sub(reg_len, reg_len, reg_vl);
