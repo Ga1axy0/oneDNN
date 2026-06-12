@@ -1,6 +1,7 @@
 /*******************************************************************************
 * Copyright 2026 Institute of Software, Chinese Academy of Sciences
 * Copyright 2026 openKylin community
+* Copyright 2026 SpacemiT Corporation
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -19,7 +20,7 @@
 #define CPU_RV64_JIT_RVV_ELTWISE_KERNEL_HPP
 
 #include "common/c_types_map.hpp"
-#include "cpu/rv64/jit_generator.hpp"
+#include "cpu/rv64/jit_rvv_eltwise_emitter.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -47,10 +48,7 @@ protected:
     void generate() override;
 
 private:
-    void compute_vector(const Xbyak_riscv::VReg &v_dst,
-            const Xbyak_riscv::VReg &v_src, const Xbyak_riscv::VReg &v_tmp,
-            const Xbyak_riscv::FReg &f_alpha, const Xbyak_riscv::FReg &f_beta,
-            const Xbyak_riscv::FReg &f_zero, const Xbyak_riscv::FReg &f_one);
+    void compute_vector(const eltwise_regs_t &r);
 
     alg_kind_t alg_;
 };
@@ -84,10 +82,7 @@ protected:
     void generate() override;
 
 private:
-    void compute_vector(const Xbyak_riscv::VReg &v_dst,
-            const Xbyak_riscv::VReg &v_src, const Xbyak_riscv::VReg &v_tmp,
-            const Xbyak_riscv::FReg &f_alpha, const Xbyak_riscv::FReg &f_beta,
-            const Xbyak_riscv::FReg &f_zero, const Xbyak_riscv::FReg &f_one);
+    void compute_vector(const eltwise_regs_t &r);
 
     alg_kind_t alg_;
 };
